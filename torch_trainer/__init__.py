@@ -7,6 +7,7 @@ from typing import Iterable, Optional, Tuple, Callable, Generator, TypeVar, List
 
 import matplotlib.pyplot as plt
 import torch
+
 from IPython.display import clear_output
 from matplotlib.ticker import MaxNLocator
 
@@ -17,19 +18,19 @@ __all__ = (
 
 _mpl_integer_locator = MaxNLocator(integer=True)
 
-Batch = TypeVar('Batch')
-FwdResult = TypeVar('FwdResult')
-BatchIterable = Iterable[Batch]
+_Batch = TypeVar('_Batch')
+_FwdResult = TypeVar('_FwdResult')
+_BatchIterable = Iterable[_Batch]
 
 
 class BatchIterator:
     __slots__ = ()
 
-    def __iter__(self) -> Generator[Batch, None, None]:
+    def __iter__(self) -> Generator[_Batch, None, None]:
         return self.batch_generator()
 
     @abstractmethod
-    def batch_generator(self) -> Generator[Batch, None, None]:
+    def batch_generator(self) -> Generator[_Batch, None, None]:
         pass
 
 
@@ -76,11 +77,11 @@ class TorchTrainer:
             network: torch.nn.Module,
             optimizer: torch.optim.Optimizer,
             *,
-            train_function: Callable[['TorchTrainer', Batch], FwdResult],
-            loss_function: Callable[['TorchTrainer', Batch, FwdResult], torch.FloatTensor],
-            train_iterator: BatchIterable,
-            test_iterator: Optional[BatchIterable] = None,
-            valid_iterator: Optional[BatchIterable] = None,
+            train_function: Callable[['TorchTrainer', _Batch], _FwdResult],
+            loss_function: Callable[['TorchTrainer', _Batch, _FwdResult], torch.FloatTensor],
+            train_iterator: _BatchIterable,
+            test_iterator: Optional[_BatchIterable] = None,
+            valid_iterator: Optional[_BatchIterable] = None,
             n_epochs: int,
             clip_rate: Optional[float] = None,
             alpha: float = 0.97,
@@ -158,10 +159,10 @@ class TorchTrainer:
         self._completed = False
         self._time_elapsed = 0
 
-    def forward(self, batch: Batch) -> torch.FloatTensor:
+    def forward(self, batch: _Batch) -> torch.FloatTensor:
         return self._train_function(self, batch)
 
-    def calc_loss(self, batch: Batch, train_result: torch.FloatTensor) -> torch.FloatTensor:
+    def calc_loss(self, batch: _Batch, train_result: torch.FloatTensor) -> torch.FloatTensor:
         return self._loss_function(self, batch, train_result)
 
     @property
@@ -173,15 +174,15 @@ class TorchTrainer:
         return self._optimizer
 
     @property
-    def train_iterator(self) -> BatchIterable:
+    def train_iterator(self) -> _BatchIterable:
         return self._train_iterator
 
     @property
-    def test_iterator(self) -> Optional[BatchIterable]:
+    def test_iterator(self) -> Optional[_BatchIterable]:
         return self._test_iterator
 
     @property
-    def valid_iterator(self) -> Optional[BatchIterable]:
+    def valid_iterator(self) -> Optional[_BatchIterable]:
         return self._valid_iterator
 
     @property
@@ -271,6 +272,12 @@ class TorchTrainer:
         valid_loss_color = self._valid_loss_color
         test_loss_color = self._test_loss_color
         savefig_path = self._savefig_path
+
+        has_valid = valid_iterator is not None
+        has_train = train_iterator is not None
+
+        initial_mode = network.training
+
         # <<< Loading variables onto the stack <<<
 
         time_stamp_1 = time()
@@ -298,22 +305,24 @@ class TorchTrainer:
             train_loss /= n_batch
 
             test_loss = val_loss = 0.0
-            network.train(False)
 
-            with torch.no_grad():
-                if valid_iterator is not None:
-                    for n_batch, valid_batch in enumerate(valid_iterator, 1):
-                        result = forward(valid_batch)
-                        loss = calc_loss(valid_batch, result)
-                        val_loss += loss
-                    val_loss /= n_batch
+            if has_valid or has_train:
+                network.train(False)
 
-                if test_iterator is not None:
-                    for n_batch, test_batch in enumerate(test_iterator, 1):
-                        result = forward(test_batch)
-                        loss = calc_loss(test_batch, result)
-                        test_loss += loss
-                    test_loss /= n_batch
+                with torch.no_grad():
+                    if has_valid:
+                        for n_batch, valid_batch in enumerate(valid_iterator, 1):
+                            result = forward(valid_batch)
+                            loss = calc_loss(valid_batch, result)
+                            val_loss += loss
+                        val_loss /= n_batch
+
+                    if has_train:
+                        for n_batch, test_batch in enumerate(test_iterator, 1):
+                            result = forward(test_batch)
+                            loss = calc_loss(test_batch, result)
+                            test_loss += loss
+                        test_loss /= n_batch
 
             # >>> Safe statistics storage >>>
             try:
@@ -402,4 +411,5 @@ class TorchTrainer:
             # <<< Plotting <<<
 
         self._completed = True
+        network.train(initial_mode)
 
