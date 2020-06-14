@@ -36,6 +36,56 @@ FwdResult = TypeVar('FwdResult')
 BatchIterable = Iterable[Batch]
 
 
+def draw_info_frame(self: 'TorchTrainer') -> None:
+    _cur_epoch_range = range(1, self._epoch + 1)
+
+    fig = plt.figure(figsize=self._figsize)
+    fig.gca().xaxis.set_major_locator(mpl_integer_locator)
+    plt.plot(
+        _cur_epoch_range,
+        self._train_loss_history,
+        label='Train',
+        color=self._train_loss_color,
+        alpha=self._alpha
+    )
+    if self._has_valid:
+        plt.plot(
+            _cur_epoch_range,
+            self._valid_loss_history,
+            label='Valid',
+            color=self._valid_loss_color,
+            alpha=self._alpha
+        )
+    if self._has_test:
+        plt.plot(
+            _cur_epoch_range,
+            self._test_loss_history,
+            label='Test',
+            color=self._test_loss_color,
+            alpha=self._alpha
+        )
+    plt.ylabel('Loss')
+    plt.xlabel('Epoch')
+    plt.legend()
+    if self._savefig_path is not None:
+        plt.savefig(self._savefig_path)
+
+    log_string = (
+        f'Epoch:        {self._epoch - 1:10_}\n'
+
+        f'Train loss:   {self._train_loss:10.6}      '
+        f'Val loss:       {self._val_loss:10.6}      '
+        f'Test loss: {self._test_loss:10.6}\n'
+
+        f'Time elapsed: {int(self._time_elapsed):10_} sec  '
+        f'Time remaining: {int((self._n_epochs - self._epoch) * self._speed):10_} sec  '
+        f'Speed:     {self._speed:10.6} ep/sec'
+    )
+
+    clear_output(True)
+    print(log_string)
+
+
 class BatchIterator(metaclass=ABCMeta):
     __slots__ = ()
 
@@ -86,14 +136,14 @@ class TorchTrainer:
         '_valid_loss_color',
         '_test_loss_color',
         '_savefig_path',
-        '_additional_drawing_fns',
+        '_drawing_fns',
 
         # Temporary attributes,
-        '__time_stamp',
-        '__train_loss',
-        '__test_loss',
-        '__val_loss',
-        '__speed'
+        '_time_stamp',
+        '_train_loss',
+        '_test_loss',
+        '_val_loss',
+        '_speed'
     )
 
     def __init__(
@@ -114,7 +164,7 @@ class TorchTrainer:
             valid_loss_color: Union[str, float] = 'r',
             test_loss_color: Union[str, float] = 'g',
             savefig_path: Optional[Union[PathLike, str, Path]] = None,
-            additional_drawing_fns: Tuple[Callable[['TorchTrainer'], None], ...] = ()
+            drawing_fns: Tuple[Callable[['TorchTrainer'], None], ...] = (draw_info_frame,)
     ) -> None:
 
         self._network: Final = network
@@ -137,7 +187,7 @@ class TorchTrainer:
         self._valid_loss_color = valid_loss_color
         self._test_loss_color = test_loss_color
         self._savefig_path = savefig_path
-        self._additional_drawing_fns = additional_drawing_fns
+        self._drawing_fns = drawing_fns
 
         self.__check_types()
 
@@ -150,7 +200,7 @@ class TorchTrainer:
         self._completed = False
         self._time_elapsed: float = 0
 
-        self.__test_loss = self.__val_loss = 0.0
+        self._test_loss = self._val_loss = 0.0
 
     def forward(self, batch: Batch) -> FwdResult:
         return self._train_function(self, batch)
@@ -201,7 +251,7 @@ class TorchTrainer:
                 'Parameter `savefig_path` should be an instance of either PathLike object or `str`, or None'
             )
 
-        if not all(isinstance(fn, abc.Callable) for fn in self._additional_drawing_fns):  # type: ignore
+        if not all(isinstance(fn, abc.Callable) for fn in self._drawing_fns):  # type: ignore
             raise TypeError('Parameter `additional_drawing_fns` should be a tuple of callables')
 
     @property
@@ -299,12 +349,12 @@ class TorchTrainer:
         forward = self.forward
         calc_loss = self.calc_loss
         clip_rate = self._clip_rate
-        additional_drawing_fns = self._additional_drawing_fns
+        drawing_fns = self._drawing_fns
         has_valid = self._has_valid
         has_test = self._has_test
         # <<< Loading variables onto the stack <<<
 
-        self.__time_stamp = time()
+        self._time_stamp = time()
 
         for epoch in range(self._epoch, self._n_epochs + 1):
 
@@ -324,7 +374,7 @@ class TorchTrainer:
                 train_loss += loss.item()
 
             train_loss /= n_batch
-            self.__train_loss = train_loss
+            self._train_loss = train_loss
 
             if has_valid or has_test:
                 test_loss = val_loss = 0.0
@@ -338,7 +388,7 @@ class TorchTrainer:
                             loss = calc_loss(valid_batch, result)
                             val_loss += loss  # type: ignore
                         val_loss /= n_batch
-                        self.__val_loss = val_loss
+                        self._val_loss = val_loss
 
                     if has_test:
                         for n_batch, test_batch in enumerate(test_iterator, 1):  # type: ignore
@@ -346,7 +396,7 @@ class TorchTrainer:
                             loss = calc_loss(test_batch, result)
                             test_loss += loss  # type: ignore
                         test_loss /= n_batch
-                        self.__test_loss = test_loss
+                        self._test_loss = test_loss
 
             try:
                 self.__try_save_loss_history()
@@ -355,9 +405,8 @@ class TorchTrainer:
                 raise
             finally:
                 self.__calc_timing_stats()
-                self.draw_info()
-                for drawing_fn in additional_drawing_fns:
-                    drawing_fn(self)
+                for draw_fn in drawing_fns:
+                    draw_fn(self)
                 plt.show()
                 self._epoch += 1
 
@@ -365,73 +414,23 @@ class TorchTrainer:
         network.train(self._initial_mode)
 
     def __try_save_loss_history(self) -> None:
-        self._train_loss_history.append(self.__train_loss)
+        self._train_loss_history.append(self._train_loss)
         if self._has_valid:
-            self._valid_loss_history.append(self.__val_loss)
+            self._valid_loss_history.append(self._val_loss)
         if self._has_test:
-            self._test_loss_history.append(self.__test_loss)
+            self._test_loss_history.append(self._test_loss)
 
     def __retry_save_loss_history(self) -> None:
         if len(self._train_loss_history) != self._epoch:
-            self._train_loss_history.append(self.__train_loss)
+            self._train_loss_history.append(self._train_loss)
         if self._has_valid and len(self._valid_loss_history) < len(self._train_loss_history):
-            self._valid_loss_history.append(self.__val_loss)
+            self._valid_loss_history.append(self._val_loss)
         if self._has_test and len(self._test_loss_history) < len(self._valid_loss_history):
-            self._test_loss_history.append(self.__test_loss)
+            self._test_loss_history.append(self._test_loss)
 
     def __calc_timing_stats(self) -> None:
         time_stamp = time()
-        time_diff = time_stamp - self.__time_stamp
-        self.__time_stamp = time_stamp
+        time_diff = time_stamp - self._time_stamp
+        self._time_stamp = time_stamp
         self._time_elapsed += time_diff
-        self.__speed = 1 / time_diff
-
-    def draw_info(self) -> None:
-
-        _cur_epoch_range = range(1, self._epoch + 1)
-
-        fig = plt.figure(figsize=self._figsize)
-        fig.gca().xaxis.set_major_locator(mpl_integer_locator)
-        plt.plot(
-            _cur_epoch_range,
-            self._train_loss_history,
-            label='Train',
-            color=self._train_loss_color,
-            alpha=self._alpha
-        )
-        if self._has_valid:
-            plt.plot(
-                _cur_epoch_range,
-                self._valid_loss_history,
-                label='Valid',
-                color=self._valid_loss_color,
-                alpha=self._alpha
-            )
-        if self._has_test:
-            plt.plot(
-                _cur_epoch_range,
-                self._test_loss_history,
-                label='Test',
-                color=self._test_loss_color,
-                alpha=self._alpha
-            )
-        plt.ylabel('Loss')
-        plt.xlabel('Epoch')
-        plt.legend()
-        if self._savefig_path is not None:
-            plt.savefig(self._savefig_path)
-
-        log_string = (
-            f'Epoch:        {self._epoch - 1:10_}\n'
-
-            f'Train loss:   {self.__train_loss:10.6}      '
-            f'Val loss:       {self.__val_loss:10.6}      '
-            f'Test loss: {self.__test_loss:10.6}\n'
-
-            f'Time elapsed: {int(self._time_elapsed):10_} sec  '
-            f'Time remaining: {int((self._n_epochs - self._epoch) * self.__speed):10_} sec  '
-            f'Speed:     {self.__speed:10.6} ep/sec'
-        )
-
-        clear_output(True)
-        print(log_string)
+        self._speed = 1 / time_diff
