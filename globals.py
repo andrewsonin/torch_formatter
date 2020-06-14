@@ -1,15 +1,16 @@
 from pathlib import Path as _Path
 
+PROJECT_NAME = 'torch_formatter'
+
 SETUP_DIRS = (
     'build',
-    'torch_formatter.egg-info',
+    f'{PROJECT_NAME}.egg-info',
     'dist'
 )
 MYPY_CACHE_DIR = '.mypy_cache'
 
 VERSION = '0.0.1'
 SLOGAN = 'Fancy PyTorch education output for Jupyter'
-PROJECT_NAME = 'torch_formatter'
 PROJECT_URL = 'https://github.com/andrewsonin/torch_formatter'
 
 PROJECT_DIR = _Path(__file__).parent

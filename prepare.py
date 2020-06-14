@@ -14,7 +14,7 @@ for setup_dir in filter(isdir, SETUP_DIRS):
 conda_yml_content: Final = cleandoc(
     f"""
     package:
-      name: chained
+      name: {PROJECT_NAME}
       version: {VERSION}
 
     build:
