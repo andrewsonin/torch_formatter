@@ -9,7 +9,7 @@ SETUP_DIRS = (
 )
 MYPY_CACHE_DIR = '.mypy_cache'
 
-VERSION = '0.0.1'
+VERSION = '0.0.2'
 SLOGAN = 'Fancy PyTorch education output for Jupyter'
 PROJECT_URL = 'https://github.com/andrewsonin/torch_formatter'
 

@@ -27,6 +27,7 @@ import torch
 
 from IPython.display import clear_output  # type: ignore
 from matplotlib.ticker import MaxNLocator  # type: ignore
+from torch.nn.utils import clip_grad_norm_
 
 mpl_integer_locator = MaxNLocator(integer=True)
 
@@ -85,6 +86,7 @@ class TorchTrainer:
         '_valid_loss_color',
         '_test_loss_color',
         '_savefig_path',
+        '_additional_drawing_fns',
 
         # Temporary attributes,
         '__time_stamp',
@@ -111,11 +113,11 @@ class TorchTrainer:
             train_loss_color: Union[str, float] = 'b',
             valid_loss_color: Union[str, float] = 'r',
             test_loss_color: Union[str, float] = 'g',
-            savefig_path: Optional[Union[PathLike, str, Path]] = None
+            savefig_path: Optional[Union[PathLike, str, Path]] = None,
+            additional_drawing_fns: Tuple[Callable[['TorchTrainer'], None], ...] = ()
     ) -> None:
 
         self._network: Final = network
-        self._initial_mode: Final[bool] = network.training  # type: ignore
         self._optimizer = optimizer
         self._loss_function: Final = loss_function
         self._train_function: Final = train_function
@@ -135,6 +137,11 @@ class TorchTrainer:
         self._valid_loss_color = valid_loss_color
         self._test_loss_color = test_loss_color
         self._savefig_path = savefig_path
+        self._additional_drawing_fns = additional_drawing_fns
+
+        self.__check_types()
+
+        self._initial_mode: Final[bool] = network.training  # type: ignore
 
         self._valid_loss_history: List[float] = []
         self._train_loss_history: List[float] = []
@@ -144,8 +151,6 @@ class TorchTrainer:
         self._time_elapsed: float = 0
 
         self.__test_loss = self.__val_loss = 0.0
-
-        self.__check_types()
 
     def forward(self, batch: Batch) -> FwdResult:
         return self._train_function(self, batch)
@@ -169,10 +174,10 @@ class TorchTrainer:
         if not isinstance(self._train_iterator, BatchIterator):
             raise TypeError('Parameter `train_iterator` should be an instance of `BatchIterator`')
 
-        if not isinstance(self._test_iterator, BatchIterator) and self._has_test:
+        if self._has_test and not isinstance(self._test_iterator, BatchIterator):
             raise TypeError('Parameter `test_iterator` should be an instance of `BatchIterator` or None')
 
-        if not isinstance(self._valid_iterator, BatchIterator) and self._has_valid:
+        if self._has_valid and not isinstance(self._valid_iterator, BatchIterator):
             raise TypeError('Parameter `valid_iterator` should be an instance of `BatchIterator` or None')
 
         if type(self._n_epochs) is not int:
@@ -195,6 +200,9 @@ class TorchTrainer:
             raise TypeError(
                 'Parameter `savefig_path` should be an instance of either PathLike object or `str`, or None'
             )
+
+        if not all(isinstance(fn, abc.Callable) for fn in self._additional_drawing_fns):  # type: ignore
+            raise TypeError('Parameter `additional_drawing_fns` should be a tuple of callables')
 
     @property
     def network(self) -> torch.nn.Module:
@@ -291,6 +299,9 @@ class TorchTrainer:
         forward = self.forward
         calc_loss = self.calc_loss
         clip_rate = self._clip_rate
+        additional_drawing_fns = self._additional_drawing_fns
+        has_valid = self._has_valid
+        has_test = self._has_test
         # <<< Loading variables onto the stack <<<
 
         self.__time_stamp = time()
@@ -307,7 +318,7 @@ class TorchTrainer:
                 loss = calc_loss(train_batch, result)
                 loss.backward()
                 if clip_rate is not None:
-                    torch.nn.utils.clip_grad_norm_(network.parameters(), clip_rate)
+                    clip_grad_norm_(network.parameters(), clip_rate)
                 optimizer.step()
 
                 train_loss += loss.item()
@@ -315,13 +326,13 @@ class TorchTrainer:
             train_loss /= n_batch
             self.__train_loss = train_loss
 
-            if self._has_valid or self._has_test:
+            if has_valid or has_test:
                 test_loss = val_loss = 0.0
 
                 network.train(False)
 
                 with torch.no_grad():
-                    if self._has_valid:
+                    if has_valid:
                         for n_batch, valid_batch in enumerate(valid_iterator, 1):  # type: ignore
                             result = forward(valid_batch)
                             loss = calc_loss(valid_batch, result)
@@ -329,7 +340,7 @@ class TorchTrainer:
                         val_loss /= n_batch
                         self.__val_loss = val_loss
 
-                    if self._has_test:
+                    if has_test:
                         for n_batch, test_batch in enumerate(test_iterator, 1):  # type: ignore
                             result = forward(test_batch)
                             loss = calc_loss(test_batch, result)
@@ -341,11 +352,13 @@ class TorchTrainer:
                 self.__try_save_loss_history()
             except KeyboardInterrupt:
                 self.__retry_save_loss_history()
-                self._network.train(self._initial_mode)
                 raise
             finally:
                 self.__calc_timing_stats()
                 self.draw_info()
+                for drawing_fn in additional_drawing_fns:
+                    drawing_fn(self)
+                plt.show()
                 self._epoch += 1
 
         self._completed = True
@@ -422,4 +435,3 @@ class TorchTrainer:
 
         clear_output(True)
         print(log_string)
-        plt.show()
