@@ -3,13 +3,30 @@ from collections import abc
 from os import PathLike
 from pathlib import Path
 from time import time
-from typing import Iterable, Optional, Tuple, Callable, Generator, TypeVar, List, Union
+from typing import (
+    # Abstract interfaces
+    Iterable,
+    Callable,
 
-import matplotlib.pyplot as plt
+    # Concrete types
+    Generator,
+    List,
+    Tuple,
+
+    # Type holders
+    Union,
+    Optional,
+    TypeVar,
+
+    # Qualifiers
+    Final
+)
+
+import matplotlib.pyplot as plt  # type: ignore
 import torch
 
-from IPython.display import clear_output
-from matplotlib.ticker import MaxNLocator
+from IPython.display import clear_output  # type: ignore
+from matplotlib.ticker import MaxNLocator  # type: ignore
 
 mpl_integer_locator = MaxNLocator(integer=True)
 
@@ -80,7 +97,7 @@ class TorchTrainer:
     def __init__(
             self,
             network: torch.nn.Module,
-            optimizer: torch.optim.Optimizer,
+            optimizer: torch.optim.Optimizer,  # type: ignore
             *,
             train_function: Callable[['TorchTrainer', Batch], FwdResult],
             loss_function: Callable[['TorchTrainer', Batch, FwdResult], torch.FloatTensor],
@@ -97,18 +114,18 @@ class TorchTrainer:
             savefig_path: Optional[Union[PathLike, str, Path]] = None
     ) -> None:
 
-        self._network = network
-        self._initial_mode = network.training
+        self._network: Final = network
+        self._initial_mode: Final[bool] = network.training  # type: ignore
         self._optimizer = optimizer
-        self._loss_function = loss_function
-        self._train_function = train_function
-        self._train_iterator = train_iterator
-        self._test_iterator = test_iterator
+        self._loss_function: Final = loss_function
+        self._train_function: Final = train_function
+        self._train_iterator: Final = train_iterator
+        self._test_iterator: Final = test_iterator
+        self._valid_iterator: Final = valid_iterator
 
-        self._has_test = self._test_iterator is not None
-        self._has_valid = self._valid_iterator is not None
+        self._has_test: Final = test_iterator is not None
+        self._has_valid: Final = valid_iterator is not None
 
-        self._valid_iterator = valid_iterator
         self._n_epochs = n_epochs
         self._clip_rate = clip_rate
 
@@ -119,34 +136,34 @@ class TorchTrainer:
         self._test_loss_color = test_loss_color
         self._savefig_path = savefig_path
 
-        self._valid_loss_history = []
-        self._train_loss_history = []
-        self._test_loss_history = []
+        self._valid_loss_history: List[float] = []
+        self._train_loss_history: List[float] = []
+        self._test_loss_history: List[float] = []
         self._epoch = 1
         self._completed = False
-        self._time_elapsed = 0
+        self._time_elapsed: float = 0
 
         self.__test_loss = self.__val_loss = 0.0
 
         self.__check_types()
 
-    def forward(self, batch: Batch) -> torch.FloatTensor:
+    def forward(self, batch: Batch) -> FwdResult:
         return self._train_function(self, batch)
 
-    def calc_loss(self, batch: Batch, train_result: torch.FloatTensor) -> torch.FloatTensor:
+    def calc_loss(self, batch: Batch, train_result: FwdResult) -> torch.FloatTensor:
         return self._loss_function(self, batch, train_result)
 
     def __check_types(self) -> None:
         if not isinstance(self._network, torch.nn.Module):
             raise TypeError('Parameter `network` should be an instance of type `torch.nn.Module`')
 
-        if not isinstance(self._optimizer, torch.optim.Optimizer):
+        if not isinstance(self._optimizer, torch.optim.Optimizer):  # type: ignore
             raise TypeError('Parameter `optimizer` should be an instance of type `torch.optim.Optimizer`')
 
-        if not isinstance(self._train_function, abc.Callable):
+        if not isinstance(self._train_function, abc.Callable):  # type: ignore
             raise TypeError('Parameter `train_function` should be callable')
 
-        if not isinstance(self._loss_function, abc.Callable):
+        if not isinstance(self._loss_function, abc.Callable):  # type: ignore
             raise TypeError('Parameter `loss_function` should be callable')
 
         if not isinstance(self._train_iterator, BatchIterator):
@@ -184,7 +201,7 @@ class TorchTrainer:
         return self._network
 
     @property
-    def optimizer(self) -> torch.optim.Optimizer:
+    def optimizer(self) -> torch.optim.Optimizer:  # type: ignore
         return self._optimizer
 
     @property
@@ -208,7 +225,7 @@ class TorchTrainer:
         return self._n_epochs
 
     @property
-    def clip_rate(self) -> float:
+    def clip_rate(self) -> Optional[float]:
         return self._clip_rate
 
     @property
@@ -280,12 +297,12 @@ class TorchTrainer:
 
         for epoch in range(self._epoch, self._n_epochs + 1):
 
-            train_loss = 0
+            train_loss = 0.0
             network.train(True)
 
             for n_batch, train_batch in enumerate(train_iterator, 1):
                 optimizer.zero_grad()
-                result = forward(train_batch)
+                result = forward(train_batch)  # type: ignore
 
                 loss = calc_loss(train_batch, result)
                 loss.backward()
@@ -299,24 +316,24 @@ class TorchTrainer:
             self.__train_loss = train_loss
 
             if self._has_valid or self._has_test:
-                test_loss = val_loss = 0
+                test_loss = val_loss = 0.0
 
                 network.train(False)
 
                 with torch.no_grad():
                     if self._has_valid:
-                        for n_batch, valid_batch in enumerate(valid_iterator, 1):
+                        for n_batch, valid_batch in enumerate(valid_iterator, 1):  # type: ignore
                             result = forward(valid_batch)
                             loss = calc_loss(valid_batch, result)
-                            val_loss += loss
+                            val_loss += loss  # type: ignore
                         val_loss /= n_batch
                         self.__val_loss = val_loss
 
                     if self._has_test:
-                        for n_batch, test_batch in enumerate(test_iterator, 1):
+                        for n_batch, test_batch in enumerate(test_iterator, 1):  # type: ignore
                             result = forward(test_batch)
                             loss = calc_loss(test_batch, result)
-                            test_loss += loss
+                            test_loss += loss  # type: ignore
                         test_loss /= n_batch
                         self.__test_loss = test_loss
 
