@@ -97,50 +97,6 @@ class TorchTrainer:
             savefig_path: Optional[Union[PathLike, str, Path]] = None
     ) -> None:
 
-        if not isinstance(network, torch.nn.Module):
-            raise TypeError('Parameter `network` should be an instance of type `torch.nn.Module`')
-
-        if not isinstance(optimizer, torch.optim.Optimizer):
-            raise TypeError('Parameter `optimizer` should be an instance of type `torch.optim.Optimizer`')
-
-        if not isinstance(train_function, abc.Callable):
-            raise TypeError('Parameter `train_function` should be callable')
-
-        if not isinstance(loss_function, abc.Callable):
-            raise TypeError('Parameter `loss_function` should be callable')
-
-        if not isinstance(train_iterator, BatchIterator):
-            raise TypeError('Parameter `train_iterator` should be an instance of `BatchIterator`')
-
-        self._has_test = test_iterator is not None
-        if not isinstance(test_iterator, BatchIterator) and self._has_test:
-            raise TypeError('Parameter `test_iterator` should be an instance of `BatchIterator` or None')
-
-        self._has_valid = valid_iterator is not None
-        if not isinstance(valid_iterator, BatchIterator) and self._has_valid:
-            raise TypeError('Parameter `valid_iterator` should be an instance of `BatchIterator` or None')
-
-        if type(n_epochs) is not int:
-            raise TypeError('Parameter `n_epochs` should be of type `int`')
-
-        if not isinstance(clip_rate, (int, float)) and clip_rate is not None:
-            raise TypeError('Parameter `clip_rate` should be of type `int`, `float` or None')
-
-        if not isinstance(alpha, (int, float)):
-            raise TypeError('Parameter `alpha` should be of type `int` or `float`')
-
-        if (
-                type(figsize) is not tuple
-                or len(figsize) != 2
-                or not all(isinstance(cord, (int, float)) for cord in figsize)
-        ):
-            raise TypeError('Parameter `figsize` should be a `tuple` with two `int` or `float` elements')
-
-        if not isinstance(savefig_path, (Path, str, PathLike)) and savefig_path is not None:
-            raise TypeError(
-                'Parameter `savefig_path` should be an instance of either PathLike object or `str`, or None'
-            )
-
         self._network = network
         self._initial_mode = network.training
         self._optimizer = optimizer
@@ -148,6 +104,9 @@ class TorchTrainer:
         self._train_function = train_function
         self._train_iterator = train_iterator
         self._test_iterator = test_iterator
+
+        self._has_test = self._test_iterator is not None
+        self._has_valid = self._valid_iterator is not None
 
         self._valid_iterator = valid_iterator
         self._n_epochs = n_epochs
@@ -169,11 +128,56 @@ class TorchTrainer:
 
         self.__test_loss = self.__val_loss = 0.0
 
+        self.__check_types()
+
     def forward(self, batch: Batch) -> torch.FloatTensor:
         return self._train_function(self, batch)
 
     def calc_loss(self, batch: Batch, train_result: torch.FloatTensor) -> torch.FloatTensor:
         return self._loss_function(self, batch, train_result)
+
+    def __check_types(self) -> None:
+        if not isinstance(self._network, torch.nn.Module):
+            raise TypeError('Parameter `network` should be an instance of type `torch.nn.Module`')
+
+        if not isinstance(self._optimizer, torch.optim.Optimizer):
+            raise TypeError('Parameter `optimizer` should be an instance of type `torch.optim.Optimizer`')
+
+        if not isinstance(self._train_function, abc.Callable):
+            raise TypeError('Parameter `train_function` should be callable')
+
+        if not isinstance(self._loss_function, abc.Callable):
+            raise TypeError('Parameter `loss_function` should be callable')
+
+        if not isinstance(self._train_iterator, BatchIterator):
+            raise TypeError('Parameter `train_iterator` should be an instance of `BatchIterator`')
+
+        if not isinstance(self._test_iterator, BatchIterator) and self._has_test:
+            raise TypeError('Parameter `test_iterator` should be an instance of `BatchIterator` or None')
+
+        if not isinstance(self._valid_iterator, BatchIterator) and self._has_valid:
+            raise TypeError('Parameter `valid_iterator` should be an instance of `BatchIterator` or None')
+
+        if type(self._n_epochs) is not int:
+            raise TypeError('Parameter `n_epochs` should be of type `int`')
+
+        if not isinstance(self._clip_rate, (int, float)) and self._clip_rate is not None:
+            raise TypeError('Parameter `clip_rate` should be of type `int`, `float` or None')
+
+        if not isinstance(self._alpha, (int, float)):
+            raise TypeError('Parameter `alpha` should be of type `int` or `float`')
+
+        if (
+                type(self._figsize) is not tuple
+                or len(self._figsize) != 2
+                or not all(isinstance(cord, (int, float)) for cord in self._figsize)
+        ):
+            raise TypeError('Parameter `figsize` should be a `tuple` with two `int` or `float` elements')
+
+        if not isinstance(self._savefig_path, (Path, str, PathLike)) and self._savefig_path is not None:
+            raise TypeError(
+                'Parameter `savefig_path` should be an instance of either PathLike object or `str`, or None'
+            )
 
     @property
     def network(self) -> torch.nn.Module:
@@ -270,12 +274,11 @@ class TorchTrainer:
         forward = self.forward
         calc_loss = self.calc_loss
         clip_rate = self._clip_rate
-        n_epochs = self._n_epochs
         # <<< Loading variables onto the stack <<<
 
         self.__time_stamp = time()
 
-        for epoch in range(self._epoch, n_epochs + 1):
+        for epoch in range(self._epoch, self._n_epochs + 1):
 
             train_loss = 0
             network.train(True)
